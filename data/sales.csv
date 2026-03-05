@@ -1,0 +1,6 @@
+order_id,customer,amount,region
+1,Ravi,1000,South
+2,Arun,2000,North
+3,Meena,-500,West
+4,Divya,3000,East
+5,Kumar,1500,South
