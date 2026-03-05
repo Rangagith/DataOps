@@ -1,0 +1,103 @@
+pipeline {
+    agent any
+
+    environment {
+        DATABRICKS_HOST = credentials('databricks-host')
+        DATABRICKS_TOKEN = credentials('databricks-token')
+        POLL_INTERVAL = 20
+        MAX_RETRIES = 15
+    }
+
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main',
+                url: 'https://github.com/your-username/enterprise-dataops-databricks.git'
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                sh 'pip install -r requirements.txt'
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                sh 'pytest tests/'
+            }
+        }
+
+        stage('Terraform Init & Apply') {
+            steps {
+                dir('terraform') {
+                    sh '''
+                    terraform init
+                    terraform apply -auto-approve
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy Notebook') {
+            steps {
+                sh '''
+                databricks configure --token <<EOF
+                $DATABRICKS_HOST
+                $DATABRICKS_TOKEN
+                EOF
+
+                databricks workspace import notebooks/sales_etl.py \
+                /Shared/sales_etl --overwrite
+                '''
+            }
+        }
+
+        stage('Manual Approval') {
+            steps {
+                input message: "Approve Production Job Execution?"
+            }
+        }
+
+        stage('Trigger Databricks Job') {
+            steps {
+                script {
+                    sh "databricks jobs run-now --job-id 1"
+                }
+            }
+        }
+
+        stage('Poll Job Status') {
+            steps {
+                script {
+                    def status = "RUNNING"
+                    def attempt = 0
+
+                    while (status == "RUNNING" && attempt < MAX_RETRIES) {
+
+                        sleep(POLL_INTERVAL)
+
+                        def result = sh(
+                            script: "databricks runs list --output JSON",
+                            returnStdout: true
+                        )
+
+                        if (result.contains("SUCCESS")) {
+                            status = "SUCCESS"
+                        } else if (result.contains("FAILED")) {
+                            status = "FAILED"
+                        }
+
+                        attempt++
+                        echo "Attempt ${attempt} - Status: ${status}"
+                    }
+
+                    if (status != "SUCCESS") {
+                        error("Databricks Job Failed")
+                    }
+                }
+            }
+        }
+    }
+}
