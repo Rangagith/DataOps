@@ -1,20 +1,17 @@
-from pyspark.sql.functions import col
+from pyspark.sql import SparkSession
 
-# Read raw data
-df = spark.read.option("header", True).csv("s3://your-raw-bucket/sales.csv")
+spark = SparkSession.builder.getOrCreate()
 
-# Convert amount to integer
-df = df.withColumn("amount", col("amount").cast("int"))
+data = [
+    ("ProductA", 100),
+    ("ProductB", 200),
+    ("ProductC", 300)
+]
 
-# Validation - remove negative values
-df_clean = df.filter(col("amount") > 0)
+df = spark.createDataFrame(data, ["product", "sales"])
 
-# Add tax column
-df_final = df_clean.withColumn("amount_with_tax", col("amount") * 1.18)
+df.show()
 
-# Write to Delta
-df_final.write.format("delta") \
-    .mode("overwrite") \
-    .save("s3://your-processed-bucket/sales_delta")
+df.write.mode("overwrite").format("delta").save("/tmp/sales_data")
 
 print("ETL Job Completed Successfully")
